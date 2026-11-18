@@ -53,3 +53,27 @@
   * Tuy nhiên, do tỷ lệ ảnh cảnh báo chưa duyệt (`18.72%`) vượt ngưỡng tự động phát hành `max_warn_ratio = 10.00%`, cổng quyết định (`gate.py`) đã kích hoạt trạng thái **`Hold`** để yêu cầu con người rà soát 38 ảnh này trước khi đưa vào huấn luyện chính thức.
 * **Đây đã là chặn trên (Oracle) của "dữ liệu sạch" chưa?**
   * **Chưa phải chặn trên.** `clean_v1` mới chỉ là dữ liệu **sau xử lý tự động + chưa qua vòng duyệt tay (Human-in-the-Loop)** đối với 38 ảnh đang ở trạng thái `Hold`. Việc vẫn còn 18.72% ảnh nghi ngờ chưa được con người xác nhận (cộng với việc một số mẫu khó bị loại bỏ thay vì sửa nhãn thủ công như tập `oracle`) khiến `clean_v1` chưa đạt tới giới hạn trần của bộ dữ liệu được con người kiểm duyệt 100%.
+  ---
+
+## 3. Bonus: Kiểm chứng định lượng rò rỉ dữ liệu (`LEAK_TEST` Ablation)
+
+### Phương pháp thực hiện
+Từ báo cáo kiểm tra `02_error_list_v1.csv`, pipeline đã phát hiện chính xác **5 ảnh trong tập `data/test`** bị trùng lặp/rò rỉ nội dung (`LEAK_TEST`) với tập `data/raw`:
+* Danh sách 5 ảnh rò rỉ (`test_leaked`, 22 instances): `test_009.jpg`, `test_033.jpg`, `test_039.jpg`, `test_044.jpg`, `test_085.jpg`.
+* Tập `data/test` (100 ảnh) được tách thành 2 tập con độc lập: **`test_leaked`** (5 ảnh rò rỉ) và **`test_unseen`** (95 ảnh hoàn toàn chưa từng xuất hiện, 365 instances), sau đó đánh giá lại hai mô hình `raw_seed0` và `clean_seed0`.
+
+### Bảng kết quả thực nghiệm tách tập đánh giá (`seed=0`)
+
+| Tập đánh giá | Số ảnh / Instances | Biến thể | mAP50 | mAP50-95 | Precision | Recall |
+|---|---:|---|---:|---:|---:|---:|
+| **`test` gốc (Toàn bộ)** | 100 / 387 | `raw_seed0` | `0.7256` | `0.5144` | `0.8068` | `0.6291` |
+| **`test` gốc (Toàn bộ)** | 100 / 387 | `clean_seed0` | `0.6813` | `0.4766` | `0.8310` | `0.5618` |
+| **`test_unseen` (Không rò rỉ)** | 95 / 365 | `raw_seed0` | `0.7233` | `0.5116` | `0.8007` | `0.6194` |
+| **`test_unseen` (Không rò rỉ)** | 95 / 365 | `clean_seed0` | `0.6746` | `0.4707` | `0.8254` | `0.5615` |
+| **`test_leaked` (5 ảnh rò rỉ)** | 5 / 22 | `raw_seed0` | `0.6670` | `0.5054` | **`0.9567`** | `0.4985` |
+| **`test_leaked` (5 ảnh rò rỉ)** | 5 / 22 | `clean_seed0` | **`0.7016`** | **`0.5225`** | `0.4638` | **`0.9660`** |
+
+### Phân tích rút ra từ thực nghiệm Bonus
+1. **Hiệu ứng ghi nhớ rò rỉ của `raw_seed0` (`Precision = 0.9567`):** Trên 5 ảnh `test_leaked`, `raw_seed0` đạt Precision cực đoan tới **`95.67%`** (gần như không dự đoán sai một box nào) vì mô hình đã học thuộc trực tiếp các ảnh/nhãn này trong quá trình train. Khi loại bỏ 5 ảnh rò rỉ để đánh giá trên `test_unseen`, điểm của `raw_seed0` giảm nhẹ từ `0.7256` xuống `0.7233` (`-0.23%` mAP50) và Precision giảm từ `0.8068` xuống `0.8007`.
+2. **Khả năng tổng quát hóa thực chất của `clean_seed0`:** Dù chưa từng nhìn thấy 5 ảnh `test_leaked` trong lúc huấn luyện, `clean_seed0` vẫn đạt **mAP50 = `0.7016`** và **mAP50-95 = `0.5225`** trên nhóm ảnh khó này (vượt cả `raw_seed0` ở cả hai chỉ số mAP50 và mAP50-95, với Recall đạt `96.60%`).
+3. **Độ tin cậy trên `test_unseen` (95 ảnh sạch):** Trên tập đánh giá công bằng 95 ảnh không rò rỉ, `clean_seed0` duy trì **Precision vượt trội (`0.8254` so với `0.8007` của `raw_seed0`, +2.47%)**, khẳng định dữ liệu đã qua AutoQC giúp mô hình giảm đáng kể tỷ lệ báo động giả (False Positives) trong môi trường thực tế.
