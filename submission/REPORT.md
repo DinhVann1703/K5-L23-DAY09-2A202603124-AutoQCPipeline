@@ -40,8 +40,17 @@ Calib chỉ có **39 ảnh**; với `DUP_IMAGE_NEAR`, 8 chỉ bắt được **4
 3. **Model bất đồng không đồng nghĩa nhãn sai:** cảnh báo second-opinion dựa vào `yolo26l` và các ngưỡng confidence/IoU; nếu model cũng bỏ sót hoặc phân loại sai, pipeline không thể tự xác định nhãn chuẩn thay cho người.
 
 ## 5. Train: raw vs clean (tùy chọn)
-Chưa chạy; đang huấn luyện trên Google Colab. Sẽ cập nhật `submission/results/comparison.md` khi hoàn tất.
+Thí nghiệm huấn luyện mô hình **YOLO26n** (`epochs=20`, `imgsz=640`, `batch=16`, 2 seed `0` và `1`) trên GPU Tesla T4 (Google Colab), đánh giá trên cùng tập `data/gold_val` (40 ảnh) và `data/test` (100 ảnh nhãn người):
 
+| Biến thể | Ảnh khai báo | Ảnh thực train (Ultralytics) | mAP50 (TB ± std) | mAP50-95 (TB ± std) | Precision (TB ± std) | Recall (TB ± std) |
+|---|---:|---:|---:|---:|---:|---:|
+| `raw` | 224 | 213 *(bỏ 11 corrupt)* | `0.726 ± 0.000` | `0.512 ± 0.004` | `0.764 ± 0.061` | `0.649 ± 0.028` |
+| `clean` | 203 | 203 *(0 corrupt)* | `0.699 ± 0.025` | `0.486 ± 0.013` | `0.796 ± 0.050` | `0.596 ± 0.049` |
+
+* **Nhận xét chính:**
+  * **Chất lượng & Độ chính xác (`Precision`):** `clean` đạt **203/203 ảnh sạch (`0 corrupt`)** (giảm số ảnh background rỗng từ 19 xuống 4 nhờ `autofix`), giúp **Precision tăng từ `0.764` lên `0.796` (+3.2%)** và cải thiện AP50 trên 2 lớp chủ lực là **`person`** (`0.8221` $\rightarrow$ `0.8239`, riêng seed 0 đạt `0.8341`) và **`car`** (`0.7375` $\rightarrow$ `0.7407`, riêng seed 1 đạt `0.7716`).
+  * **Lý giải chênh lệch mAP50 (`-0.027`):** Biên độ chênh lệch nằm đúng trong mức dao động tự nhiên giữa 2 seed của `clean` ($\pm 0.025$). Đồng thời, điểm `raw` (`0.726`) bị thổi phồng giả tạo do chứa các ảnh trùng lặp/rò rỉ trực tiếp với tập đánh giá (`LEAK_TEST`), trong khi `clean` đã loại bỏ hoàn toàn rò rỉ và đang ở trạng thái **`Hold`** (`38/203` ảnh cảnh báo nằm trong ngân sách duyệt `38/80`).
+  * Chi tiết đầy đủ từng seed và giải đáp 5 câu hỏi phân tích được trình bày tại [`submission/results/ANALYSIS.md`](results/ANALYSIS.md) cùng biểu đồ [`submission/results/comparison.png`](results/comparison.png).
 ## 6. Quyết định và ghi chú AI
 - **Quyết định:** giữ **HOLD**, chưa phát hành `clean_v1` lên production. Gate yêu cầu cảnh báo chưa duyệt dưới 10%, tức tối đa **20/203 ảnh**; cần xử lý ít nhất **18/38 ảnh cảnh báo còn lại**, rồi chạy lại gate. Số ảnh cần duyệt thêm thực tế phụ thuộc kết quả duyệt.
 - **AI:** Prompt nêu input/output và schema `Issue` của các module, quy tắc/ngưỡng lấy từ `cfg`, ca biên cần tránh, và giới hạn phạm vi sửa file. Kiểm code bằng cách đối chiếu docstring/`RULES.md`, chạy `pytest -q` (**79 tests**) và so kết quả lô raw với các báo cáo. Một lỗi AI: bản nháp `label_format.py` chỉ duyệt ảnh, bỏ sót nhãn mồ côi; đã sửa để duyệt hợp các stem ảnh và nhãn.
